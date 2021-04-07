@@ -302,6 +302,27 @@ void ReleaseUnityMesh(DracoToUnityMesh **mesh_ptr) {
   *mesh_ptr = nullptr;
 }
 
+void ReleaseUnityPointCloud(DracoToUnityPointCloud **point_cloud_ptr) {
+  DracoToUnityPointCloud *point_cloud = *point_cloud_ptr;
+  if (!point_cloud) {
+    return;
+  }
+  if (point_cloud->position) {
+    delete[] point_cloud->position;
+    point_cloud->position = nullptr;
+  }
+  if (point_cloud->has_normal && point_cloud->normal) {
+    delete[] point_cloud->normal;
+    point_cloud->normal = nullptr;
+  }
+  if (point_cloud->has_color && point_cloud->color) {
+    delete[] point_cloud->color;
+    point_cloud->color = nullptr;
+  }
+  delete point_cloud;
+  *point_cloud_ptr = nullptr;
+}
+
 int DecodeMeshForUnity(char *data, unsigned int length,
                        DracoToUnityMesh **tmp_mesh) {
   draco::DecoderBuffer buffer;
@@ -400,6 +421,81 @@ int DecodeMeshForUnity(char *data, unsigned int length,
   }
 
   return in_mesh->num_faces();
+}
+
+int DecodePointCloudForUnity(char *data, unsigned int length, DracoToUnityPointCloud **tmp_point_cloud) {
+  draco::DecoderBuffer buffer;
+  buffer.Init(data, length);
+  auto type_statusor = draco::Decoder::GetEncodedGeometryType(&buffer);
+  if (!type_statusor.ok()) {
+    // TODO(draco-eng): Use enum instead.
+    return -1;
+  }
+  const draco::EncodedGeometryType geom_type = type_statusor.value();
+  if (geom_type != draco::POINT_CLOUD) {
+    return -2;
+  }
+
+  draco::Decoder decoder;
+  auto statusor = decoder.DecodePointCloudFromBuffer(&buffer);
+  if (!statusor.ok()) {
+    return -3;
+  }
+  std::unique_ptr<draco::PointCloud> in_point_cloud = std::move(statusor).value();
+
+  *tmp_point_cloud = new DracoToUnityPointCloud();
+  DracoToUnityPointCloud *unity_point_cloud = *tmp_point_cloud;
+  unity_point_cloud->num_vertices = in_point_cloud->num_points();
+
+  // TODO(draco-eng): Add other attributes.
+  unity_point_cloud->position = new float[in_point_cloud->num_points() * 3];
+  const auto pos_att =
+      in_point_cloud->GetNamedAttribute(draco::GeometryAttribute::POSITION);
+  for (draco::PointIndex i(0); i < in_point_cloud->num_points(); ++i) {
+    const draco::AttributeValueIndex val_index = pos_att->mapped_index(i);
+    if (!pos_att->ConvertValue<float, 3>(
+            val_index, unity_point_cloud->position + i.value() * 3)) {
+      ReleaseUnityPointCloud(&unity_point_cloud);
+      return -8;
+    }
+  }
+  // Get normal attributes.
+  const auto normal_att =
+      in_point_cloud->GetNamedAttribute(draco::GeometryAttribute::NORMAL);
+  if (normal_att != nullptr) {
+    unity_point_cloud->normal = new float[in_point_cloud->num_points() * 3];
+    unity_point_cloud->has_normal = true;
+    for (draco::PointIndex i(0); i < in_point_cloud->num_points(); ++i) {
+      const draco::AttributeValueIndex val_index = normal_att->mapped_index(i);
+      if (!normal_att->ConvertValue<float, 3>(
+              val_index, unity_point_cloud->normal + i.value() * 3)) {
+        ReleaseUnityPointCloud(&unity_point_cloud);
+        return -8;
+      }
+    }
+  }
+  // Get color attributes.
+  const auto color_att =
+      in_point_cloud->GetNamedAttribute(draco::GeometryAttribute::COLOR);
+  if (color_att != nullptr) {
+    unity_point_cloud->color = new float[in_point_cloud->num_points() * 4];
+    unity_point_cloud->has_color = true;
+    for (draco::PointIndex i(0); i < in_point_cloud->num_points(); ++i) {
+      const draco::AttributeValueIndex val_index = color_att->mapped_index(i);
+      if (!color_att->ConvertValue<float, 4>(
+              val_index, unity_point_cloud->color + i.value() * 4)) {
+        ReleaseUnityPointCloud(&unity_point_cloud);
+        return -8;
+      }
+      if (color_att->num_components() < 4) {
+        // If the alpha component wasn't set in the input data we should set
+        // it to an opaque value.
+        unity_point_cloud->color[i.value() * 4 + 3] = 1.f;
+      }
+    }
+  }
+
+  return in_point_cloud->num_points();
 }
 
 }  // namespace draco

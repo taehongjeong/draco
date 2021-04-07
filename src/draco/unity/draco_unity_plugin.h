@@ -137,14 +137,37 @@ struct EXPORT_API DracoToUnityMesh {
   float *color;
 };
 
+struct EXPORT_API DracoToUnityPointCloud {
+  DracoToUnityPointCloud()
+      : num_vertices(0),
+        position(nullptr),
+        has_normal(false),
+        normal(nullptr),
+        has_color(false),
+        color(nullptr) {}
+
+  int num_vertices;
+  float *position;
+  bool has_normal;
+  float *normal;
+  bool has_color;
+  float *color;
+};
+
 // ReleaseUnityMesh is deprecated.
 void EXPORT_API ReleaseUnityMesh(DracoToUnityMesh **mesh_ptr);
+
+void EXPORT_API ReleaseUnityPointCloud(DracoToUnityPointCloud **point_cloud_ptr);
 
 // To use this function, you do not allocate memory for |tmp_mesh|, just
 // define and pass a null pointer. Otherwise there will be memory leak.
 // DecodeMeshForUnity is deprecated.
 int EXPORT_API DecodeMeshForUnity(char *data, unsigned int length,
                                   DracoToUnityMesh **tmp_mesh);
+
+int EXPORT_API DecodePointCloudForUnity(char *data, unsigned int length, 
+                                        DracoToUnityPointCloud **tmp_point_cloud);
+
 }  // extern "C"
 
 }  // namespace draco
